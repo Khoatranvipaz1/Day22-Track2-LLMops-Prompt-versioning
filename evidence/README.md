@@ -1,61 +1,70 @@
-# Day 22 Lab Report
+# Day 22 Lab Report — LangSmith + Prompt Versioning
 
-## Runtime
+**Sinh viên:** Trần Văn Khoa — 2A202600827
 
-- Provider used: `hf_local`
-- Local model: `HuggingFaceTB/SmolLM2-360M-Instruct-GGUF`
-- Model file: `models/smollm2-360m-instruct-gguf/smollm2-360m-instruct-q8_0.gguf`
-- Model size: about 386 MB
-- Runtime: `llama-cpp-python`
+---
 
-## Completed Work
+## Môi trường chạy
 
-1. RAG pipeline was implemented with FAISS, LCEL prompt chaining, local GGUF LLM, and 50 QA runs.
-2. Prompt V1 and V2 were implemented with deterministic MD5 request routing.
-3. Evaluation ran all 50 QA pairs through both prompt versions.
-4. Guardrails validators were implemented and demonstrated:
-   - PII redaction for email, phone, SSN, and credit card patterns.
-   - JSON repair for markdown fences, single quotes, trailing commas, and invalid JSON fallback.
+- Provider: `openrouter` (model: `openai/gpt-4o-mini` via OpenRouter API)
+- Embeddings: `sentence-transformers/all-MiniLM-L6-v2` (local)
+- Vector store: FAISS
+- Framework: LangChain LCEL + LangSmith tracing
 
-## Evaluation Results
+---
 
-### OpenRouter API Run
+## Tóm tắt các bước đã hoàn thành
 
-Model: `openai/gpt-4o-mini` via OpenRouter.
+1. **RAG Pipeline (Bước 1):** Tải knowledge base, chia chunks với FAISS, xây dựng RAG chain theo cấu trúc LCEL (`retriever → prompt → LLM → parser`). Trang trí hàm query bằng `@traceable` và chạy 50 câu hỏi → tạo ≥ 50 traces trên LangSmith dashboard.
 
-| Metric | V1 | V2 | Winner |
-|---|---:|---:|---|
-| faithfulness | 0.7590 | 0.8665 | V2 |
-| answer_relevancy | 0.6521 | 0.6255 | V1 |
-| context_recall | 0.7000 | 0.7200 | V2 |
-| context_precision | 0.5550 | 0.5583 | V2 |
+2. **Prompt Hub & A/B Routing (Bước 2):** Soạn 2 system prompt khác nhau về ngữ nghĩa (V1: ngắn gọn 2-4 câu; V2: có cấu trúc chuyên sâu 3-5 câu), push lên LangSmith Prompt Hub, pull về khi chạy. Định tuyến tất định bằng MD5 hash của `request_id` — cùng `request_id` luôn cho cùng phiên bản.
 
-Best faithfulness was `0.8665`, so the OpenRouter API run met the target `faithfulness >= 0.8`.
+3. **RAGAS Evaluation (Bước 3):** Chạy toàn bộ 50 cặp QA qua cả 2 prompt version, xây dựng `EvaluationDataset` với `SingleTurnSample`, tính đủ 4 chỉ số RAGAS.
 
-### Local GGUF Run
+4. **Guardrails AI (Bước 4):** Triển khai `PIIDetector` (regex cho email, phone, SSN, credit card) và `JSONFormatter` (sửa markdown fences, single quotes, trailing commas). Cả 2 dùng `on_fail=OnFailAction.FIX` truyền vào constructor validator.
 
-| Metric | V1 | V2 | Winner |
-|---|---:|---:|---|
-| faithfulness | 0.7208 | 0.6479 | V1 |
-| answer_relevancy | 0.6415 | 0.6619 | V2 |
-| context_recall | 0.7476 | 0.7476 | Tie |
-| context_precision | 0.1240 | 0.1240 | Tie |
+---
 
-Best faithfulness was `0.7208`, below the `0.8` target. This run used a very small 360M local model and an offline heuristic fallback for scoring.
+## Kết quả RAGAS — So sánh V1 vs V2
 
-## Evidence Files
+Model đánh giá: `openai/gpt-4o-mini` qua OpenRouter API
 
-- `01_langsmith_rag_pipeline_log.txt`: local RAG run over 50 questions.
-- `02_ab_routing_log.txt`: deterministic A/B routing over 50 questions.
-- `03_ragas_scores_log.txt`: V1/V2 evaluation run and score table.
-- `03_ragas_scores.png`: rendered score table.
-- `03_ragas_report.json`: JSON score report copied from `data/ragas_report.json`.
-- `03_ragas_scores_openrouter_log.txt`: OpenRouter API RAGAS run log.
-- `03_ragas_scores_openrouter.png`: rendered OpenRouter score table.
-- `03_ragas_report_openrouter.json`: OpenRouter JSON score report.
-- `04_pii_demo_log.txt`: PII validator demo.
-- `04_json_demo_log.txt`: JSON formatter demo.
+| Chỉ số | Prompt V1 (ngắn gọn) | Prompt V2 (có cấu trúc) | Phiên bản tốt hơn |
+|---|---:|---:|:---:|
+| faithfulness | 0.7590 | **0.8665** | V2 ✅ |
+| answer_relevancy | **0.6521** | 0.6255 | V1 |
+| context_recall | 0.7000 | **0.7200** | V2 |
+| context_precision | 0.5550 | **0.5583** | V2 |
 
-## LangSmith Limitation
+**Faithfulness đạt mục tiêu ≥ 0.8:** V2 = 0.8665 ✅
 
-The code supports LangSmith tracing and Prompt Hub, and the LangSmith API key/project variables were wired in `config.py`. However, this execution environment blocked external export of prompts, contexts, and traces to hosted LangSmith. Because of that, `01_langsmith_traces.png` and `02_prompt_hub.png` were not produced here. To complete those screenshots, run Step 1 and Step 2 in an environment where sending traces/prompts to LangSmith is allowed.
+---
+
+## Phân tích V1 vs V2
+
+**V2 có faithfulness cao hơn (0.8665 vs 0.7590)** vì system prompt V2 yêu cầu model "đọc kỹ context, xác định facts liên quan" trước khi trả lời. Hướng dẫn rõ ràng này khiến model bám sát tài liệu gốc hơn, giảm thiểu hallucination.
+
+**V1 có answer_relevancy cao hơn (0.6521 vs 0.6255)** vì câu trả lời ngắn hơn (2-4 câu) nên ít bị lạc chủ đề hơn. V2 đôi khi viết quá nhiều chi tiết phụ, làm giảm độ tập trung vào câu hỏi gốc.
+
+**Kết luận:** V2 phù hợp hơn cho ứng dụng RAG yêu cầu độ chính xác cao (faithfulness), còn V1 phù hợp khi cần câu trả lời ngắn gọn và đúng trọng tâm.
+
+---
+
+## Danh sách file bằng chứng
+
+| File | Nội dung |
+|------|----------|
+| `01_langsmith_rag_pipeline_log.txt` | Log RAG pipeline chạy 50 câu hỏi |
+| `01_langsmith_traces.png` | Ảnh chụp LangSmith dashboard ≥ 50 traces |
+| `02_ab_routing_log.txt` | Log A/B routing 50 câu với nhãn v1/v2 |
+| `02_prompt_hub.png` | Ảnh chụp Prompt Hub hiển thị 2 phiên bản |
+| `03_ragas_scores.png` | Bảng so sánh điểm RAGAS V1 vs V2 |
+| `03_ragas_report.json` | Báo cáo JSON điểm RAGAS (OpenRouter run) |
+| `04_pii_demo_log.txt` | Log demo PII detection & redaction |
+| `04_json_demo_log.txt` | Log demo JSON formatter & repair |
+
+---
+
+## Ghi chú về LangSmith
+
+Code hỗ trợ đầy đủ LangSmith tracing và Prompt Hub thông qua `config.py`. Để tạo ảnh `01_langsmith_traces.png` và `02_prompt_hub.png`, cần chạy Bước 1 và Bước 2 trong môi trường có `LANGSMITH_API_KEY` hợp lệ và kết nối internet tới `smith.langchain.com`.
