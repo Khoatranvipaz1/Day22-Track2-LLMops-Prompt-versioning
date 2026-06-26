@@ -2,6 +2,8 @@
 
 **Sinh viên:** Trần Văn Khoa — 2A202600827
 
+**LangSmith Project:** https://smith.langchain.com/o/e7534c61-391c-476c-a5b5-18147cafee07/projects (project: `day22-lab`)
+
 ---
 
 ## Môi trường chạy
